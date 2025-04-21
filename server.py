@@ -94,7 +94,7 @@ class Server:
         if len(args) == 0:
             dir = self.abs_path()
             files = os.listdir(dir)
-            response = '\n'.join(files)
+            response = '\n'.join(files) if files else ' '
 
         # Listar arquivos em um diretório específico
         elif len(args) == 1:
@@ -105,6 +105,9 @@ class Server:
 
             except FileNotFoundError:
                 response = "Diretório não encontrado"
+            except NotADirectoryError:
+                    response = f"Erro: '{args[0]}' não é um diretório\n"
+
         
         # Agumentos inválidos
         else:
