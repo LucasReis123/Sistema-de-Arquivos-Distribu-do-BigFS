@@ -13,7 +13,7 @@ class Client:
         print("Conectado ao servidor. Digite 'help' para ver os comandos disponíveis.\n")
 
         while True:
-            cmd = input("").strip()
+            cmd = input(":$ ").strip()
 
             if not cmd:
                 continue
@@ -22,88 +22,16 @@ class Client:
             command = parts[0]
             args = parts[1:]
 
-            if command == "clear":
-                print("\033[H\033[J", end="")
-                continue
-
-            elif command in ['listar', 'ls']:
+            if command in ['listar', 'ls']:
                 msg = cmd
 
             elif command in ['copy', 'cp']:
-                if len(args) < 2:
-                    print("Uso correto: cp <origem1> <origem2> ... <destino>")
-                    continue
-
-                *files, destination = args
-                for file_path in files:
-                    if not os.path.exists(file_path):
-                        print(f"Arquivo não encontrado: {file_path}")
-                        continue
-
-                    filename = os.path.basename(file_path)
-                    msg = f"copy {filename} {destination}"
-                    self.client_socket.sendall(msg.encode())
-
-                    ack = self.client_socket.recv(1024).decode()
-                    if ack != "ok":
-                        print(ack)
-                        continue
-
-                    with open(file_path, "rb") as f:
-                        while True:
-                            chunk = f.read(4096)
-                            if not chunk:
-                                break
-                            self.client_socket.sendall(chunk)
-                    self.client_socket.sendall(b"<EOF>")
-
-                    ack = self.client_socket.recv(1024).decode()
-                    if ack != "done":
-                        print("Erro ao sincronizar com o servidor.")
-                        continue
-
-                    print(f"Arquivo {filename} copiado com sucesso.")
-
-
+                self.copy(args)
                 continue
 
             elif command in ['get', 'baixar']:
-                if len(args) != 1:
-                    print("Uso correto: get <nome_arquivo>")
-                    continue
-
-                filename = args[0]
-                self.client_socket.sendall(f"{cmd}".encode())
-
-                # Aguarda resposta do servidor
-                response = self.client_socket.recv(1024).decode()
-
-                if "Pronto para enviar" in response:
-                    basename = os.path.basename(filename)
-                    destino = f"baixado_{basename}"
-                    if os.path.exists(destino):
-                        print(f"O arquivo '{destino}' já existe. Cancelando o download.")
-                        self.client_socket.sendall("cancelar".encode())
-                        continue
-
-                    # Envia confirmação para o servidor começar
-                    self.client_socket.sendall("ok".encode())
-
-                    # Recebe o conteúdo do arquivo
-                    with open(f"baixado_{basename}", "wb") as f:
-                        while True:
-                            chunk = self.client_socket.recv(4096)
-                            if b"<EOF>" in chunk:
-                                f.write(chunk.replace(b"<EOF>", b""))
-                                break
-                            f.write(chunk)
-
-                    print(f"Arquivo '{filename}' salvo como 'baixado_{basename}'")
-                    continue
-
-                else:
-                    print("Erro ao tentar baixar o arquivo.")
-                    continue
+                self.get(args)
+                continue
 
 
             elif command in ['remover', 'rm']:
@@ -119,6 +47,10 @@ class Client:
                 response = self.client_socket.recv(4096)
                 print(response.decode())
                 break
+
+            elif command == "clear":
+                print("\033[H\033[J", end="")
+                continue
 
             elif command == "help":
                 if len(args) == 0:
@@ -137,6 +69,80 @@ class Client:
             print(response.decode())
 
         self.client_socket.close()
+
+    def copy(self, args):
+        """Lida com o comando de cópia de arquivos para o servidor"""
+        if len(args) < 2:
+            print("Uso correto: cp <origem1> <origem2> ... <destino>")
+            return
+
+        *files, destination = args
+        for file_path in files:
+            if not os.path.exists(file_path):
+                print(f"Arquivo não encontrado: {file_path}")
+                continue
+
+            filename = os.path.basename(file_path)
+            msg = f"copy {filename} {destination}"
+            self.client_socket.sendall(msg.encode())
+
+            ack = self.client_socket.recv(1024).decode()
+            if ack != "ok":
+                print(ack)
+                continue
+
+            # Envia o conteúdo do arquivo
+            with open(file_path, "rb") as f:
+                while True:
+                    chunk = f.read(4096)
+                    if not chunk:
+                        break
+                    self.client_socket.sendall(chunk)
+            self.client_socket.sendall(b"<EOF>")
+
+            ack = self.client_socket.recv(1024).decode()
+            if ack != "done":
+                print("Erro ao sincronizar com o servidor.")
+                continue
+
+            print(f"Arquivo {filename} copiado com sucesso.")
+
+    def get(self, args):
+        """Lida com o comando de download de arquivos do servidor"""
+        if len(args) != 1:
+            print("Uso correto: get <nome_arquivo>")
+            return
+
+        filename = args[0]
+        self.client_socket.sendall(f"get {filename}".encode())
+
+        # Aguarda resposta do servidor
+        response = self.client_socket.recv(1024).decode()
+
+        if "Pronto para enviar" not in response:
+            print("Erro ao tentar baixar o arquivo.")
+            return
+
+        basename = os.path.basename(filename)
+        destino = f"baixado_{basename}"
+        if os.path.exists(destino):
+            print(f"O arquivo '{destino}' já existe. Cancelando o download.")
+            self.client_socket.sendall("cancelar".encode())
+            return
+
+        # Envia confirmação para o servidor começar
+        self.client_socket.sendall("ok".encode())
+
+        # Recebe o conteúdo do arquivo
+        with open(destino, "wb") as f:
+            while True:
+                chunk = self.client_socket.recv(4096)
+                if b"<EOF>" in chunk:
+                    f.write(chunk.replace(b"<EOF>", b""))
+                    break
+                f.write(chunk)
+
+        print(f"Arquivo '{filename}' salvo como '{destino}'")
 
     def help(self):
         print("\033[H\033[J", end="")
